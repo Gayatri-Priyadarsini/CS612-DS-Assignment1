@@ -1,10 +1,5 @@
 package mr
 
-//
-// RPC definitions.
-//
-// remember to capitalize all names.
-//
 
 import "os"
 import "strconv"
@@ -31,12 +26,12 @@ const MsgForFinishReduce = "MsgForFinishReduce"
 
 
 type Args struct {
-	MsgType 	string
+	MsgType 	string	//Indicates which type of msg, Msg for job request, file location, or for signalling that map or reduce job is over/finished
 	MsgCnt		string
 }
 
 type Reply struct {
-	Filename	string
+	Filename	string	
 	MapNum	int
 	RedNum	int
 	Reducers 	int
