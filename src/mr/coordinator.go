@@ -1,5 +1,6 @@
 package mr
 
+//import "fmt"
 import "log"
 import "net"
 import "os"
@@ -8,49 +9,60 @@ import "net/http"
 import "strconv" //to convert int to char
 import "sync"  // for synchronization mechanisms
 import "time"  // for ticker, so that the coordinator cana monitor can the worker
- 
+  
+
+
+const (
+	UnAssigned = iota
+	Assigned
+	Finished
+)
+
+var maptasks chan string          // chan for map task
+var reducetasks chan int  
+
 
 
 type Coordinator struct {
 	// Your definitions here.
-	MapJobStatus	map[string]int
+	MapJobStatus		map[string]int
 	ReduceJobStatus	map[int]int
-	MapJobNum	int
-	ReduceJobNum	int
-	InterFiles	[][]string
-	MapFin	bool
-	RedFin	bool
-	mu	*sync.Mutex	
+	MapJobNum		int
+	ReduceJobNum		int
+	InterFiles		[][]string
+	MapFin			bool
+	RedFin			bool
+	mu			sync.Mutex	
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
-func (c *Coordinator) RPCHandler(args *Args,reply *Reply) error 
-{
-	fmt.Println("RPC Handler is called by the worker to communicate with the coordinator")
+func (c *Coordinator) RPCHandler(args *Args,reply *Reply) error {
+	
+	
+	
 	MsgType := args.MsgType
-	switch(MsgType)
-	{
-	case MsgForJob:
-		select 
-		{
-		case filename := <- map_job_channel:
+	switch(MsgType) {
+	case "MsgForJob":
+		
+		select {
+		case filename := <- maptasks:
 			reply.Filename=filename
 			reply.MapNum=c.MapJobNum
-			reply.Reducers=c.ReduceJobNum
+			reply.RedNum=c.ReduceJobNum
 			reply.TaskType="map"
 			c.mu.Lock()
 			c.MapJobStatus[filename]=Assigned
 			c.MapJobNum++
 			c.mu.Unlock()
 			go c.MonitorWorker("map",filename)
-			return nil
+			
 		
-		case ReduceJobNum := ,- reduce_job_channel:
+		case ReduceJobNum := <- reducetasks:
 			reply.TaskType="reduce"
 			reply.RedFileList=c.InterFiles[ReduceJobNum]
-			reply.Reducers=c.ReduceJobNum
 			reply.RedNum=c.ReduceJobNum
+			reply.RedNum=ReduceJobNum
 			
 			c.mu.Lock()
 			c.ReduceJobStatus[ReduceJobNum]=Assigned
@@ -58,83 +70,68 @@ func (c *Coordinator) RPCHandler(args *Args,reply *Reply) error
 			go c.MonitorWorker("reduce",strconv.Itoa(ReduceJobNum))
 			return nil
 		}
-	case MsgForFinishMap:
+	case "MsgForFinishMap":
 		c.mu.Lock()
 		c.MapJobStatus[args.MsgCnt]=Finished
 		c.mu.Unlock()
-	case MsgForFinishReduce:
-		index, _ := strconv.Atoi(args.MessageCnt)
+	case "MsgForFinishReduce":
+		index, _ := strconv.Atoi(args.MsgCnt)
 		c.mu.Lock()
 		c.ReduceJobStatus[index]=Finished
-	}
-	return nil
+		c.mu.Unlock()
 	
+	}
+	return nil	
 }
 
-func (c *Coordinator) MonitorWorker(taskType,identifier string)
-{
+func (c *Coordinator) MonitorWorker(taskType,identifier string) {
 	ticker := time.NewTicker(10*time.Second)
-	for 
-	{
-		select
-		{
+	defer ticker.Stop()
+	for {
+		select{
 		case <- ticker.C:
-			if taskType =="map"
-			{
+			if taskType =="map"{
 				c.mu.Lock()
-				c.MapJobStatus[identifier]=NotAssigned
+				c.MapJobStatus[identifier]=UnAssigned
 				c.mu.Unlock()
 				maptasks <- identifier
-			}
-			else if taskType == "reduce"
-			{
+			} else if taskType == "reduce"{
 				index,_:=strconv.Atoi(identifier)
 				c.mu.Lock()
-				c.ReduceTaskStatus[index]=UnAssigned
+				c.ReduceJobStatus[index]=UnAssigned
 				c.mu.Unlock()
 				reducetasks <- index
 			}
-			return 
-		
+			return
+			
 		default:
-			if taskType == "map"
-			{
+			if taskType == "map" {
 				c.mu.Lock()
-				if c.MapJobStatus[identifier]==Finished
-				{
+				if c.MapJobStatus[identifier]==Finished {
 					c.mu.Unlock()
 					return
-				} 
-				else
-				{
+				} else {
 					c.mu.Unlock()
 				}
-			}
-			else if taskType == "reduce"
-			{
+			} else if taskType == "reduce" {
 				index, _ :=strconv.Atoi(identifier)
 				c.mu.Lock()
-				if c.ReduceJobStatus[index]== Finished 
-				{
+				if c.ReduceJobStatus[index]== Finished {
 					c.mu.Unlock()
 					return
-				}
-				else
-				{
+				} else {
 					c.mu.Unlock()
 				}
 			}
-
 		}
 	}
-	ticker.Stop()
 }
 
 
-func (c *Coordinator) InterFileHandler(args *InterFile,reply *Reply)
-{
-	ReduceNum := args.RedType;
-	filename := args.MsgCnt;
+func (c *Coordinator) InterFileHandler(args *InterFile,reply *Reply) error {
+
+	ReduceNum := args.RedType
+	filename := string(args.MsgCnt)
 	c.InterFiles[ReduceNum]=append(c.InterFiles[ReduceNum],filename)
 	return nil
 }
@@ -154,14 +151,14 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 // start a thread that listens for RPCs from worker.go
 //
 func (c *Coordinator) server() {
-	
+
 	maptasks = make(chan string,5)
 	reducetasks=make(chan int,5)
 	
 	rpc.Register(c)
 	rpc.HandleHTTP()
 	
-	go m.createJob()
+	go c.createJob()
 	
 	//l, e := net.Listen("tcp", ":1234")
 	sockname := coordinatorSock()
@@ -174,65 +171,56 @@ func (c *Coordinator) server() {
 }
 
 
-func (c *Coordinator) createJob()
-{
+func (c *Coordinator) createJob() {
 	
-	for k,v := range c.MapJobStatus
-	{
-		if v==UnFinished
-		{
+	for k,v := range c.MapJobStatus {
+		if v == UnAssigned {
 			maptasks <- k
 		}
 	}
 	
-	ok=false
-	for !ok 
-	{
+	ok := false
+	for !ok {
 		ok =checkAllMapJobs(c)
 	}
-	c.MapFin=true
+	c.MapFin = true
 	
-	for k,v := range c.ReduceJobStatus
-	{
-		if v==UnFinished
-		{
+	for k,v := range c.ReduceJobStatus {
+		if v == UnAssigned {
 			reducetasks <- k
 		}
 	}
 	
-	ok=false
-	for !ok 
-	{
-		ok =checkAllReduceJobs(c)
+	ok = false
+	for !ok {
+		ok=checkAllReduceJobs(c)
 	}
 	c.RedFin=true
 }
 
-func checkAllMapJobs(c *Coordinator) bool
-{
+func checkAllMapJobs(c *Coordinator) bool {
+
 	c.mu.Lock()
-	for _,v := range c.MapJobStatus
-	{
-		if v!=Finished
-		{
+	defer c.mu.Unlock()
+	for _,v := range c.MapJobStatus {
+		if v!=Finished {
 			return false
 		}
 	}
-	c.mu.Unlock()
+	
 	return true
 }
 
-func checkAllReduceJobs(c *Coordinator) bool
-{
+func checkAllReduceJobs(c *Coordinator) bool {
+
 	c.mu.Lock()
-	for _,v := range c.ReduceJobStatus
-	{
-		if v!=Finished
-		{
+	defer c.mu.Unlock()
+	for _,v := range c.ReduceJobStatus {
+		if v!=Finished {
 			return false
 		}
 	}
-	c.mu.Unlock()
+	
 	return true
 }
 
@@ -241,10 +229,10 @@ func checkAllReduceJobs(c *Coordinator) bool
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
+	ret := true
 
 	// Your code here.
-	ret = m.RedFin
+	ret = c.RedFin
 
 	return ret
 }
@@ -254,23 +242,23 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 //
+
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 	c.MapJobStatus=make(map[string]int)
 	c.MapJobNum=0
-	c.Reducers=nReduce
+	c.ReduceJobNum=nReduce
 	c.MapFin=false
 	c.RedFin=false
 	c.ReduceJobStatus=make(map[int]int)
-	c.InterFiles=make([][]string,c.Reducers)
-	c.mu=new(sync.RWMutex)
+	c.InterFiles=make([][]string,c.ReduceJobNum)
+	//mu sync.Mutex
+	//c.mu = new(sync.Mutex)
 	
-	for _,v := range files
-	{
+	for _,v := range files {
 		c.MapJobStatus[v]=UnAssigned
 	}
-	for i:=0; i<nReduce ; i++
-	{
+	for i:=0; i<nReduce ; i++ {
 		c.ReduceJobStatus[i]=UnAssigned
 	}
 
