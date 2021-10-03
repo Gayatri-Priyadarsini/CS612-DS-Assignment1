@@ -18,13 +18,13 @@ const (
 	Finished
 )
 
-var maptasks chan string          // chan for map task
-var reducetasks chan int  
+var maptasks chan string          // chan for map tasks
+var reducetasks chan int  		// channel for reduce tasks
 
 
 
 type Coordinator struct {
-	// Your definitions here.
+
 	MapJobStatus		map[string]int
 	ReduceJobStatus	map[int]int
 	MapJobNum		int
@@ -39,8 +39,10 @@ type Coordinator struct {
 
 func (c *Coordinator) RPCHandler(args *Args,reply *Reply) error {
 	
-	
-	
+	// This functions listens to the requests and recieves them from workers
+	//If the worker requests a Mapper or Reducer job, checks if any request is waiting in the queue and assigns it
+	// If the worker sends a message of completion of Map job, it updates the status of the Map jobs done till now
+	/// If the worker sends a message of completion of Reduce job, it updates the status of the Map jobs done till now
 	MsgType := args.MsgType
 	switch(MsgType) {
 	case "MsgForJob":
@@ -85,6 +87,9 @@ func (c *Coordinator) RPCHandler(args *Args,reply *Reply) error {
 }
 
 func (c *Coordinator) MonitorWorker(taskType,identifier string) {
+	
+	//In order to assign a task to some other mapper or reducers if one is down, the coordinator keeps check on the mappers and reducers who have taken more than 10 seconds and assigns it to the other one available.
+	// If the job is done within 10 seconds, it updates the status of number of map jobs or reduce jobs
 	ticker := time.NewTicker(10*time.Second)
 	defer ticker.Stop()
 	for {
@@ -127,7 +132,7 @@ func (c *Coordinator) MonitorWorker(taskType,identifier string) {
 	}
 }
 
-
+// Recieves the Inter mediate files from the map jobs which now need to be assigned to the reducers
 func (c *Coordinator) InterFileHandler(args *InterFile,reply *Reply) error {
 
 	ReduceNum := args.RedType
@@ -136,20 +141,12 @@ func (c *Coordinator) InterFileHandler(args *InterFile,reply *Reply) error {
 	return nil
 }
 
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
 }
 
 
-//
-// start a thread that listens for RPCs from worker.go
-//
 func (c *Coordinator) server() {
 
 	maptasks = make(chan string,5)
@@ -170,7 +167,8 @@ func (c *Coordinator) server() {
 	go http.Serve(l, nil)
 }
 
-
+// Assigns job to mappers and producers according to the worker requests
+// If all jobs are done, all map and reduce jobs, Signals -> Done by making the ReduceFinish variable or RedFin variable true
 func (c *Coordinator) createJob() {
 	
 	for k,v := range c.MapJobStatus {
@@ -198,6 +196,7 @@ func (c *Coordinator) createJob() {
 	c.RedFin=true
 }
 
+// If all map jobs are done, send a signal to the createJob function
 func checkAllMapJobs(c *Coordinator) bool {
 
 	c.mu.Lock()
@@ -210,7 +209,7 @@ func checkAllMapJobs(c *Coordinator) bool {
 	
 	return true
 }
-
+// If all reduce jobs are done, send a signal to the createJob function
 func checkAllReduceJobs(c *Coordinator) bool {
 
 	c.mu.Lock()
@@ -228,10 +227,10 @@ func checkAllReduceJobs(c *Coordinator) bool {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 //
+//If the createJobs gets a green signal from both the CheckALlReduceJobs and CheckAllMapJobs fucntions, it return true to the mrcoordinator.go
 func (c *Coordinator) Done() bool {
 	ret := true
 
-	// Your code here.
 	ret = c.RedFin
 
 	return ret
