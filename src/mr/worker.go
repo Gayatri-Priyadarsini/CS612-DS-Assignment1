@@ -48,16 +48,13 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
-
-	for
-	{
-		reply := AskForJob(MsgForJob,"")
-		if(reply.TaskType == "")
-		{
-			continue
+	
+	for(true){
+		reply := AskForJob("MsgForJob","")
+		if(reply.TaskType == ""){
+			break
 		}
-		switch(reply.TaskType)
-		{
+		switch(reply.TaskType) {
 		case "map":
 			mapWorker(&reply,mapf)
 		case "reduce":
@@ -66,47 +63,40 @@ func Worker(mapf func(string, string) []KeyValue,
 	}
 }
 
-func mapWorker(reply *Reply,mapf func(string,string) []KeyValue)
-{
+func mapWorker(reply *Reply,mapf func(string,string) []KeyValue) {
+	
 	file,err := os.Open(reply.Filename)
-	if err !=nil
-	{
+	if err !=nil {
 		log.Fatalf("cannot open %v",reply.Filename)
 	}
 	content,err := ioutil.ReadAll(file)
-	if err !=nil
-	{
+	if err !=nil {
 		log.Fatalf("cannot read %v",reply.Filename)
 	}
 	kva := mapf(reply.Filename,string(content))
 	kvas:=Partition(kva,reply.Reducers)
 	
-	for i:=0;i<reply.Reducers;i++
-	{
+	for i:=0;i<reply.Reducers;i++ {
 		filename := WriteToJSONFile(kvas[i],reply.MapNum,i)
-		_ = SendInterFiles(MsgForInterFileLoc,filename,i)
+		_ = SendInterFiles(MsgForInterFileLoc,filename,string(i))
 	}
 	_ = AskForJob(MsgForFinishMap,reply.Filename)
 	
 	file.Close()
 }
 
-func reduceWorker(reply *Reply,reducef func(string,string) string)
-{
+func reduceWorker(reply *Reply,reducef func(string,[]string) string) {
+	
 	intermediate := []KeyValue{}
-	for _,v := range reply.ReduceFileList
-	{
+	for _,v := range reply.RedFileList {
 		file,err := os.Open(v)
-		if err !=nil
-		{
+		if err !=nil {
 			log.Fatalf("cannot open %v",v)
 		}
 		dec := json.NewDecoder(file)
-		for
-		{
+		for {
 			var kv KeyValue
-			if err := dec.Decode(&kv); err!=nil
-			{
+			if err := dec.Decode(&kv); err!=nil {
 				break
 			}
 			intermediate=append(intermediate,kv)
@@ -117,16 +107,13 @@ func reduceWorker(reply *Reply,reducef func(string,string) string)
 	ofile,_:=os.Create(oname)
 	
 	i := 0
-	for i<len(intermediate)
-	{
-		j = i+1
-		for j<len(intermediate) && intermediate[j].Key == intermediate[i].Key
-		{
+	for i<len(intermediate) {
+		j := i+1
+		for j<len(intermediate) && intermediate[j].Key == intermediate[i].Key {
 			j++
 		}
 		values:=[]string{}
-		for k := i;k<j;k++
-		{
+		for k := i;k<j;k++ {
 			values=append(values,intermediate[k].Value)
 		}
 		output:=reducef(intermediate[i].Key,values)
@@ -137,31 +124,32 @@ func reduceWorker(reply *Reply,reducef func(string,string) string)
 }
 
 
-func AskForJob(msgType int,msgCnt string) Reply
-{
+func AskForJob(msgType string,msgCnt string) Reply {
+	
 	args:=Args{}
 	args.MsgType=msgType
-	args.MsgCnt=msgCnt
+	args.MsgCnt=msgCnt	
 	reply:=Reply{}
+	reply.Reducers=4
 	res:=call("Coordinator.RPCHandler",&args,&reply)
-	if !res 
-	{
+	if !res {
 		return Reply{TaskType:""}
 	}
 	return reply
 }
 
 
-func SendInterFiles(msgType int,msgCnt string, nReduceType) Reply
-{
+func SendInterFiles(msgType string,msgCnt string, nReduceType string ) Reply {
+	
 	args:=InterFile{}
-	args.MsgType=msgType
-	args.MsgCnt=msgCnt
-	args.RedType=nReduceType
+	
+	args.MsgType,_=strconv.Atoi(msgType)
+	args.MsgCnt,_= strconv.Atoi(msgCnt)
+	args.RedType,_=strconv.Atoi(nReduceType)
 	reply:=Reply{}
+
 	res := call("Coordinator.InterFileHandler",&args,&reply)
-	if !res
-	{
+	if !res {
 		fmt.Println("error sending intermediate files' location")
 	}
 	return reply
@@ -196,6 +184,7 @@ func CallExample() {
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
+	
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
@@ -207,13 +196,11 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	if err == nil {
 		return true
 	}
-
-	fmt.Println(err)
 	return false
 }
 
-func WriteToJSONFile(intermediate []KayValue,mapTaskNum,reduceTaskNum int)string
-{
+func WriteToJSONFile(intermediate []KeyValue,mapTaskNum,reduceTaskNum int)string {
+	
 	filename := "mr-"+strconv.Itoa(mapTaskNum)+"-"+strconv.Itoa(reduceTaskNum)
 	jfile, _ := os.Create(filename)
 
@@ -250,4 +237,3 @@ func Partition(kva []KeyValue, nReduce int) [][]KeyValue {
 	}
 	return kvas
 }
-
