@@ -10,10 +10,7 @@ import "strconv"
 import "encoding/json"
 import "sort"
 
-//
-// Map functions return a slice of KeyValue.
-//
-
+// from mrsequential code
 type ByKey []KeyValue
 
 // for sorting by key.
@@ -28,8 +25,7 @@ type KeyValue struct {
 }
 
 //
-// use ihash(key) % NReduce to choose the reduce
-// task number for each KeyValue emitted by Map.
+// ihash(key) % NReduce to choose the reduce task number for each KeyValue emitted by Map.
 //
 func ihash(key string) int {
 	h := fnv.New32a()
@@ -41,14 +37,8 @@ func ihash(key string) int {
 //
 // main/mrworker.go calls this function.
 //
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
-	
-	// Your worker implementation here.
-
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
-	
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	// Continuosly makes requests to the coordinator until all the tasks are completed and is assigned either a reduce or a map job
 	for(true){
 		reply := AskForJob("MsgForJob","")
 		if(reply.TaskType == ""){
@@ -64,7 +54,7 @@ func Worker(mapf func(string, string) []KeyValue,
 }
 
 func mapWorker(reply *Reply,mapf func(string,string) []KeyValue) {
-	
+	// If a map reply is sent from the coordinator, then a file is assigned to this worker to apply the mapper function and partition it before sending it to the Reducer
 	file,err := os.Open(reply.Filename)
 	if err !=nil {
 		log.Fatalf("cannot open %v",reply.Filename)
@@ -75,7 +65,7 @@ func mapWorker(reply *Reply,mapf func(string,string) []KeyValue) {
 	}
 	kva := mapf(reply.Filename,string(content))
 	kvas:=Partition(kva,reply.Reducers)
-	
+	// The output is written to intermediate JSON files
 	for i:=0;i<reply.Reducers;i++ {
 		filename := WriteToJSONFile(kvas[i],reply.MapNum,i)
 		_ = SendInterFiles(MsgForInterFileLoc,filename,string(i))
@@ -86,7 +76,7 @@ func mapWorker(reply *Reply,mapf func(string,string) []KeyValue) {
 }
 
 func reduceWorker(reply *Reply,reducef func(string,[]string) string) {
-	
+	//scans intermediate version and send it to the reduce funtion 
 	intermediate := []KeyValue{}
 	for _,v := range reply.RedFileList {
 		file,err := os.Open(v)
@@ -125,7 +115,7 @@ func reduceWorker(reply *Reply,reducef func(string,[]string) string) {
 
 
 func AskForJob(msgType string,msgCnt string) Reply {
-	
+	// Initializes the args and reply for RPC being sent to the Coordinator
 	args:=Args{}
 	args.MsgType=msgType
 	args.MsgCnt=msgCnt	
@@ -140,7 +130,7 @@ func AskForJob(msgType string,msgCnt string) Reply {
 
 
 func SendInterFiles(msgType string,msgCnt string, nReduceType string ) Reply {
-	
+	//Intermediate files are sent to the Coordinator to be assigned to the reducer
 	args:=InterFile{}
 	
 	args.MsgType,_=strconv.Atoi(msgType)
@@ -154,11 +144,7 @@ func SendInterFiles(msgType string,msgCnt string, nReduceType string ) Reply {
 	}
 	return reply
 }
-//
-// example function to show how to make an RPC call to the coordinator.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
+
 func CallExample() {
 
 	// declare an argument structure.
@@ -178,8 +164,7 @@ func CallExample() {
 }
 
 //
-// send an RPC request to the coordinator, wait for the response.
-// usually returns true.
+// sends an RPC request to the coordinator, wait for the response usually returns true.
 // returns false if something goes wrong.
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
@@ -215,7 +200,7 @@ func WriteToJSONFile(intermediate []KeyValue,mapTaskNum,reduceTaskNum int)string
 }
 
 func WriteToReduceOutput(key, values string, nReduce int) {
-	
+	// writes the output in the format of mr-out-* by aggregating the mr-MapNum-ReduceNum files being produced
 	filename := "mr-out-"+strconv.Itoa(nReduce)
 	ofile, err := os.Open(filename)
 	if err != nil {
@@ -229,7 +214,7 @@ func WriteToReduceOutput(key, values string, nReduce int) {
 
 // Partition : divide intermedia keyvalue pairs into nReduce buckets
 func Partition(kva []KeyValue, nReduce int) [][]KeyValue {
-	
+	//partitions the key value pairs into buckets , equal to the number of reducers
 	kvas := make([][]KeyValue,nReduce)
 	for _,kv := range kva {
 		v := ihash(kv.Key) % nReduce
