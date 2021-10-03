@@ -24,21 +24,18 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 
-const (
-	MsgForJob = iota
-	MsgForInterFileLoc
-	MsgForFinishMap
-	MsgForFinishReduce
-)
+const MsgForJob = "MsgForJob" 
+const MsgForInterFileLoc = "MsgForInterFileLoc" 
+const MsgForFinishMap  = "MsgForFinishMap"
+const MsgForFinishReduce = "MsgForFinishReduce"
 
-type Args struct
-{
+
+type Args struct {
 	MsgType 	string
-	MsgCnt	int
+	MsgCnt		string
 }
 
-type Reply struct
-{
+type Reply struct {
 	Filename	string
 	MapNum	int
 	RedNum	int
@@ -49,8 +46,7 @@ type Reply struct
 }
 
 
-type InterFile struct 
-{
+type InterFile struct {
 	MsgType	int
 	MsgCnt	int
 	RedType	int
